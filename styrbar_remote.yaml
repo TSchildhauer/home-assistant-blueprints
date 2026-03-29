@@ -1,0 +1,153 @@
+blueprint:
+  name: ZHA - IKEA Styrbar (Dimmer & Temp)
+  description: >
+    **English:** Simple and stable control for IKEA Styrbar (N2) in ZHA.
+    - Up (Short): Turn On
+    - Up (Hold): Dim Up
+    - Down (Short): Turn Off
+    - Down (Hold): Dim Down
+    - Left: Warm White (Configurable)
+    - Right: Cold White (Configurable)
+
+  domain: automation
+
+  input:
+    remote:
+      name: Remote Control
+      description: >
+        Select your IKEA Styrbar (Remote Control N2).
+      selector:
+        device:
+          integration: zha
+          model: Remote Control N2
+
+    light:
+      name: Light
+      description: >
+        The light(s) to control.
+      selector:
+        entity:
+          domain: light
+
+    warm_temp:
+      name: Warm Color (Left)
+      description: >
+        Kelvin value for Left arrow.
+        (Default/Standard: 2200K)
+      default: 2200
+      selector:
+        number:
+          min: 2000
+          max: 3000
+          step: 100
+          unit_of_measurement: "K"
+          mode: slider
+
+    cold_temp:
+      name: Cold Color (Right)
+      description: >
+        Kelvin value for Right arrow.
+        (Default: 3000K)
+      default: 3000
+      selector:
+        number:
+          min: 3000
+          max: 6500
+          step: 100
+          unit_of_measurement: "K"
+          mode: slider
+
+mode: restart
+max_exceeded: silent
+
+trigger:
+  - platform: event
+    event_type: zha_event
+    event_data:
+      device_id: !input remote
+
+action:
+  - variables:
+      command: "{{ trigger.event.data.command }}"
+      args: "{{ trigger.event.data.args }}"
+      warm_k: !input warm_temp
+      cold_k: !input cold_temp
+
+  - choose:
+
+      # --- ENGLISH: SHORT PRESS UP → TURN ON ---
+      - conditions:
+          - "{{ command == 'on' }}"
+        sequence:
+          - service: light.turn_on
+            target:
+              entity_id: !input light
+
+      # --- ENGLISH: SHORT PRESS DOWN → TURN OFF ---
+      - conditions:
+          - "{{ command == 'off' }}"
+        sequence:
+          - service: light.turn_off
+            target:
+              entity_id: !input light
+
+      # --- ENGLISH: HOLD UP → DIM UP ---
+      - conditions:
+          - "{{ command == 'move_with_on_off' }}"
+        sequence:
+          - repeat:
+              count: 20
+              sequence:
+                - service: light.turn_on
+                  target:
+                    entity_id: !input light
+                  data:
+                    brightness_step_pct: 15
+                    transition: 0.5
+                - delay: "00:00:00.500"
+
+      # --- ENGLISH: HOLD DOWN → DIM DOWN ---
+      - conditions:
+          - "{{ command == 'move' }}"
+        sequence:
+          - repeat:
+              count: 20
+              sequence:
+                - service: light.turn_on
+                  target:
+                    entity_id: !input light
+                  data:
+                    brightness_step_pct: -15
+                    transition: 0.5
+                - delay: "00:00:00.500"
+
+      # --- ENGLISH: LEFT ARROW → WARM WHITE ---
+      - conditions:
+          - "{{ command == 'press' }}"
+          - "{{ args[0] == 257 }}"
+        sequence:
+          - service: light.turn_on
+            target:
+              entity_id: !input light
+            data:
+              color_temp_kelvin: "{{ warm_k }}"
+              transition: 1
+
+      # --- ENGLISH: RIGHT ARROW → COLD WHITE ---
+      # --- SVENSKA: HÖGER PIL → KALLVITT ---
+      - conditions:
+          - "{{ command == 'press' }}"
+          - "{{ args[0] == 256 }}"
+        sequence:
+          - service: light.turn_on
+            target:
+              entity_id: !input light
+            data:
+              color_temp_kelvin: "{{ cold_k }}"
+              transition: 1
+
+      # --- ENGLISH: RELEASE BUTTON → STOP ---
+      - conditions:
+          - "{{ command in ['stop', 'stop_with_on_off'] }}"
+        sequence:
+          - delay: "00:00:00.100"
